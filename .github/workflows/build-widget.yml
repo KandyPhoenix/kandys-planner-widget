@@ -1,0 +1,39 @@
+name: Build Widget APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kandys-planner-widget-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Widget build ${{ github.run_number }}
+          files: app/build/outputs/apk/debug/app-debug.apk
+          body: "Debug APK — sideload by opening this link on your phone and tapping the .apk file. Allow 'Install unknown apps' for your browser if prompted."
