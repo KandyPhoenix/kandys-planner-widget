@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -120,7 +121,7 @@ private fun WidgetContent(json: String?) {
 
         LazyColumn(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 12.dp)) {
             items(rows.size) { idx ->
-                RenderRow(rows[idx], today)
+                RenderRow(rows[idx], today, openUrl)
             }
         }
     }
@@ -194,38 +195,41 @@ private fun buildRows(obj: JSONObject): List<Row2> {
 }
 
 @Composable
-private fun RenderRow(row: Row2, today: LocalDate) {
+private fun RenderRow(row: Row2, today: LocalDate, openUrl: Action) {
     when (row) {
         is Row2.Space4 -> Spacer(modifier = GlanceModifier.height(10.dp))
         is Row2.Header -> Text(
             text = row.label,
             style = TextStyle(color = ColorProvider(MUTED), fontWeight = FontWeight.Bold, fontSize = 14.sp),
-            modifier = GlanceModifier.padding(bottom = 4.dp),
+            modifier = GlanceModifier.fillMaxWidth().padding(bottom = 4.dp).clickable(openUrl),
         )
         is Row2.Plain -> Text(
             text = row.text,
             style = TextStyle(color = ColorProvider(row.color), fontWeight = FontWeight.Bold, fontSize = 17.sp),
-            modifier = GlanceModifier.padding(vertical = 3.dp),
+            modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp).clickable(openUrl),
         )
         is Row2.Item -> Text(
             text = "•  " + row.text,
             style = TextStyle(color = ColorProvider(TEXT), fontSize = 16.sp),
             maxLines = 1,
-            modifier = GlanceModifier.padding(vertical = 3.dp),
+            modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp).clickable(openUrl),
         )
-        is Row2.Agenda -> AgendaRow(row.obj, row.showDate)
+        is Row2.Agenda -> AgendaRow(row.obj, row.showDate, openUrl)
     }
 }
 
 @Composable
-private fun AgendaRow(item: JSONObject, showDate: Boolean) {
+private fun AgendaRow(item: JSONObject, showDate: Boolean, openUrl: Action) {
     val space = item.optString("space", "PM")
     val title = item.optString("title", "")
     val pri = item.optBoolean("pri", false)
     val dateStr = item.optString("date", "")
     val dateLabel = if (showDate) shortDate(dateStr) else ""
 
-    Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp).clickable(openUrl),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Spacer(modifier = GlanceModifier.width(10.dp).height(10.dp).background(spaceColor(space)))
         Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
