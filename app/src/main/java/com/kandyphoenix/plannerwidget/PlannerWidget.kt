@@ -92,27 +92,27 @@ private fun WidgetContent(json: String?) {
     Column(modifier = GlanceModifier.fillMaxSize().background(BG)) {
         // Header — not part of the scroll region, always visible.
         Row(
-            modifier = GlanceModifier.fillMaxWidth().padding(12.dp, 12.dp, 12.dp, 4.dp).clickable(openUrl),
+            modifier = GlanceModifier.fillMaxWidth().padding(14.dp, 14.dp, 14.dp, 8.dp).clickable(openUrl),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = "Kandy's Planner", style = TextStyle(color = ColorProvider(PINK), fontWeight = FontWeight.Bold, fontSize = 14.sp))
-            Spacer(modifier = GlanceModifier.width(8.dp))
-            Text(text = headerDate, style = TextStyle(color = ColorProvider(MUTED), fontSize = 11.sp))
+            Text(text = "Kandy's Planner", style = TextStyle(color = ColorProvider(PINK), fontWeight = FontWeight.Bold, fontSize = 22.sp))
             Spacer(modifier = GlanceModifier.width(10.dp))
+            Text(text = headerDate, style = TextStyle(color = ColorProvider(MUTED), fontSize = 16.sp))
+            Spacer(modifier = GlanceModifier.width(14.dp))
             Text(
                 text = "⟳",
-                style = TextStyle(color = ColorProvider(MUTED), fontSize = 14.sp),
+                style = TextStyle(color = ColorProvider(MUTED), fontSize = 22.sp),
                 modifier = GlanceModifier.clickable(actionRunCallback<RefreshActionCallback>()),
             )
         }
 
         if (json == null) {
-            Text(text = "Loading…", style = TextStyle(color = ColorProvider(MUTED), fontSize = 12.sp), modifier = GlanceModifier.padding(12.dp))
+            Text(text = "Loading…", style = TextStyle(color = ColorProvider(MUTED), fontSize = 16.sp), modifier = GlanceModifier.padding(12.dp))
             return@Column
         }
         val obj = try { JSONObject(json) } catch (e: Exception) { null }
         if (obj == null) {
-            Text(text = "Couldn't load planner data", style = TextStyle(color = ColorProvider(RED), fontSize = 12.sp), modifier = GlanceModifier.padding(12.dp))
+            Text(text = "Couldn't load planner data", style = TextStyle(color = ColorProvider(RED), fontSize = 16.sp), modifier = GlanceModifier.padding(12.dp))
             return@Column
         }
 
@@ -196,22 +196,22 @@ private fun buildRows(obj: JSONObject): List<Row2> {
 @Composable
 private fun RenderRow(row: Row2, today: LocalDate) {
     when (row) {
-        is Row2.Space4 -> Spacer(modifier = GlanceModifier.height(6.dp))
+        is Row2.Space4 -> Spacer(modifier = GlanceModifier.height(10.dp))
         is Row2.Header -> Text(
             text = row.label,
-            style = TextStyle(color = ColorProvider(MUTED), fontWeight = FontWeight.Bold, fontSize = 10.sp),
-            modifier = GlanceModifier.padding(bottom = 2.dp),
+            style = TextStyle(color = ColorProvider(MUTED), fontWeight = FontWeight.Bold, fontSize = 14.sp),
+            modifier = GlanceModifier.padding(bottom = 4.dp),
         )
         is Row2.Plain -> Text(
             text = row.text,
-            style = TextStyle(color = ColorProvider(row.color), fontWeight = FontWeight.Bold, fontSize = 12.sp),
-            modifier = GlanceModifier.padding(vertical = 1.dp),
+            style = TextStyle(color = ColorProvider(row.color), fontWeight = FontWeight.Bold, fontSize = 17.sp),
+            modifier = GlanceModifier.padding(vertical = 3.dp),
         )
         is Row2.Item -> Text(
             text = "•  " + row.text,
-            style = TextStyle(color = ColorProvider(TEXT), fontSize = 11.sp),
+            style = TextStyle(color = ColorProvider(TEXT), fontSize = 16.sp),
             maxLines = 1,
-            modifier = GlanceModifier.padding(vertical = 1.dp),
+            modifier = GlanceModifier.padding(vertical = 3.dp),
         )
         is Row2.Agenda -> AgendaRow(row.obj, row.showDate)
     }
@@ -225,12 +225,12 @@ private fun AgendaRow(item: JSONObject, showDate: Boolean) {
     val dateStr = item.optString("date", "")
     val dateLabel = if (showDate) shortDate(dateStr) else ""
 
-    Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
-        Spacer(modifier = GlanceModifier.width(6.dp).height(6.dp).background(spaceColor(space)))
-        Spacer(modifier = GlanceModifier.width(5.dp))
+    Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(modifier = GlanceModifier.width(10.dp).height(10.dp).background(spaceColor(space)))
+        Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
             text = (if (pri) "★ " else "") + title + (if (dateLabel.isNotBlank()) "  ·  $dateLabel" else ""),
-            style = TextStyle(color = ColorProvider(TEXT), fontSize = 11.sp),
+            style = TextStyle(color = ColorProvider(TEXT), fontSize = 16.sp),
             maxLines = 1,
         )
     }
