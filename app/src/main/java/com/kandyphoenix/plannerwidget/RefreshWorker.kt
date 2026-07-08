@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -16,7 +15,7 @@ val SUMMARY_KEY = stringPreferencesKey("agenda_summary_json")
 
 private val ISO: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
-/** Fetches the planner's live Firestore state, computes the agenda summary, and pushes it into every widget instance. */
+/** Fetches the planner's live Firestore state, computes the widget summary, and pushes it into every widget instance. */
 class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -28,7 +27,7 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         if (ids.isEmpty()) return Result.success()
 
         for (id in ids) {
-            updateAppWidgetState(applicationContext, PreferencesGlanceStateDefinition, id) { prefs ->
+            updateAppWidgetState(applicationContext, androidx.glance.state.PreferencesGlanceStateDefinition, id) { prefs ->
                 prefs.toMutablePreferences().apply { this[SUMMARY_KEY] = json }
             }
         }
@@ -44,6 +43,12 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         obj.put("error", s.error)
         obj.put("today", itemsToJson(s.todayItems))
         obj.put("upcoming", itemsToJson(s.upcomingItems))
+        obj.put("billed", s.billedThisMonth)
+        obj.put("paid", s.paidThisMonth)
+        obj.put("mealNote", s.mealNote)
+        obj.put("goals", goalsToJson(s.goals))
+        obj.put("todo", JSONArray(s.todoTop))
+        obj.put("buy", JSONArray(s.buyTop))
         return obj.toString()
     }
 
@@ -56,6 +61,19 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             o.put("client", it.client)
             o.put("date", it.date.format(ISO))
             o.put("pri", it.pri)
+            arr.put(o)
+        }
+        return arr
+    }
+
+    private fun goalsToJson(goals: List<GoalItem>): JSONArray {
+        val arr = JSONArray()
+        for (g in goals) {
+            val o = JSONObject()
+            o.put("text", g.text)
+            o.put("target", g.target)
+            o.put("progress", g.progress)
+            o.put("done", g.done)
             arr.put(o)
         }
         return arr

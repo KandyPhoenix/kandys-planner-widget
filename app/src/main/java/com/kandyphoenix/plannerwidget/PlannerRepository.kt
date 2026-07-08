@@ -20,6 +20,8 @@ private const val FIRESTORE_URL =
         "?key=AIzaSyAxqkJiZL94gR3W5TBPTRNE5AdLyCDwb2g"
 
 private val ISO: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+private val EXPENSE_TYPES = setOf("Bill")
+private const val MEAL_TAG = "[FODMAP meal plan]"
 
 data class AgendaItem(
     val title: String,
@@ -30,24 +32,38 @@ data class AgendaItem(
     val overdue: Boolean,
 )
 
+data class GoalItem(val text: String, val target: Int, val progress: Int, val done: Boolean)
+
 data class AgendaSummary(
     val overdueCount: Int,
     val todayItems: List<AgendaItem>,
     val upcomingItems: List<AgendaItem>,
+    val billedThisMonth: Double,
+    val paidThisMonth: Double,
+    val goals: List<GoalItem>,
+    val mealNote: String?,
+    val todoTop: List<String>,
+    val buyTop: List<String>,
     val fetchedAt: Long,
     val error: String? = null,
 )
 
+private fun emptySummary(error: String? = null) = AgendaSummary(
+    overdueCount = 0, todayItems = emptyList(), upcomingItems = emptyList(),
+    billedThisMonth = 0.0, paidThisMonth = 0.0, goals = emptyList(), mealNote = null,
+    todoTop = emptyList(), buyTop = emptyList(), fetchedAt = System.currentTimeMillis(), error = error,
+)
+
 object PlannerRepository {
 
-    /** Fetch the planner's Firestore doc and compute today/overdue/upcoming. Never throws — errors land in AgendaSummary.error. */
+    /** Fetch the planner's Firestore doc and compute the whole widget summary. Never throws — errors land in AgendaSummary.error. */
     fun fetchSummary(): AgendaSummary {
         return try {
             val json = fetchDocJson()
             computeSummary(json)
         } catch (e: Exception) {
             Log.w(TAG, "fetchSummary failed", e)
-            AgendaSummary(0, emptyList(), emptyList(), System.currentTimeMillis(), error = e.message ?: "fetch failed")
+            emptySummary(e.message ?: "fetch failed")
         }
     }
 
@@ -72,12 +88,15 @@ object PlannerRepository {
 
         val done = state.optJSONObject("done") ?: JSONObject()
         val skip = state.optJSONObject("skip") ?: JSONObject()
+        val paidMap = state.optJSONObject("paid") ?: JSONObject()
         val rules = state.optJSONArray("rules") ?: JSONArray()
         val oneoffs = state.optJSONArray("oneoffs") ?: JSONArray()
+        val notes = state.optJSONObject("notes") ?: JSONObject()
+        val goalsArr = state.optJSONArray("goals") ?: JSONArray()
+        val lists = state.optJSONArray("lists") ?: JSONArray()
 
+        // ---- Agenda: overdue / today / upcoming (30 days back, 6 days forward) ----
         val items = mutableListOf<AgendaItem>()
-
-        // Recurring rules — day-by-day scan across the window (cheap: ~37 days x few rules).
         var d = windowStart
         while (!d.isAfter(windowEnd)) {
             for (i in 0 until rules.length()) {
@@ -101,13 +120,10 @@ object PlannerRepository {
             }
             d = d.plusDays(1)
         }
-
-        // One-off tasks.
         for (i in 0 until oneoffs.length()) {
             val o = oneoffs.getJSONObject(i)
             if (o.optBoolean("done", false)) continue
-            val dueStr = o.optString("due", "")
-            val due = parseDateOrNull(dueStr) ?: continue
+            val due = parseDateOrNull(o.optString("due", "")) ?: continue
             if (due.isBefore(windowStart) || due.isAfter(windowEnd)) continue
             items.add(
                 AgendaItem(
@@ -120,15 +136,81 @@ object PlannerRepository {
                 )
             )
         }
-
         val overdue = items.filter { it.overdue }.sortedBy { it.date }
         val todays = items.filter { it.date == today }.sortedBy { !it.pri }
         val upcoming = items.filter { it.date.isAfter(today) }.sortedWith(compareBy({ it.date }, { !it.pri }))
+
+        // ---- Money: this calendar month, billed/paid (mirrors moneyMini() in index.html) ----
+        val monthStart = YearMonth.from(today).atDay(1)
+        val monthEnd = YearMonth.from(today).atEndOfMonth()
+        var billed = 0.0
+        var paid = 0.0
+        var md = monthStart
+        while (!md.isAfter(monthEnd)) {
+            for (i in 0 until rules.length()) {
+                val r = rules.getJSONObject(i)
+                if (!r.optBoolean("active", true)) continue
+                if (!firesOn(r, md)) continue
+                val amount = r.optDouble("amount", 0.0)
+                if (amount <= 0.0 || r.optString("type") in EXPENSE_TYPES) continue
+                val key = "${r.optString("id")}|${md.format(ISO)}"
+                if (skip.optBoolean(key, false)) continue
+                billed += amount
+                if (paidMap.optBoolean(key, false)) paid += amount
+            }
+            md = md.plusDays(1)
+        }
+        for (i in 0 until oneoffs.length()) {
+            val o = oneoffs.getJSONObject(i)
+            val due = parseDateOrNull(o.optString("due", "")) ?: continue
+            if (due.isBefore(monthStart) || due.isAfter(monthEnd)) continue
+            val amount = o.optDouble("amount", 0.0)
+            if (amount <= 0.0 || o.optString("type") in EXPENSE_TYPES) continue
+            billed += amount
+            if (o.optBoolean("paid", false)) paid += amount
+        }
+
+        // ---- Goals: this month only ----
+        val monthKey = "%04d-%02d".format(today.year, today.monthValue)
+        val goals = mutableListOf<GoalItem>()
+        for (i in 0 until goalsArr.length()) {
+            val g = goalsArr.getJSONObject(i)
+            if (g.optString("month") != monthKey) continue
+            goals.add(GoalItem(g.optString("text", ""), g.optInt("target", 0), g.optInt("progress", 0), g.optBoolean("done", false)))
+        }
+
+        // ---- Meal plan note for today ----
+        val todayNote = notes.optString(today.format(ISO), "")
+        val mealNote = if (todayNote.startsWith(MEAL_TAG)) todayNote.removePrefix(MEAL_TAG).trim() else null
+
+        // ---- Lists: To-Do + Need to Buy (undone items, top 5 each) ----
+        var todoTop = emptyList<String>()
+        var buyTop = emptyList<String>()
+        for (i in 0 until lists.length()) {
+            val l = lists.getJSONObject(i)
+            val id = l.optString("id")
+            if (id != "todo" && id != "buy") continue
+            val itemsArr = l.optJSONArray("items") ?: JSONArray()
+            val texts = mutableListOf<String>()
+            for (j in 0 until itemsArr.length()) {
+                val it = itemsArr.getJSONObject(j)
+                if (it.optBoolean("done", false)) continue
+                texts.add(it.optString("text", ""))
+                if (texts.size >= 5) break
+            }
+            if (id == "todo") todoTop = texts else buyTop = texts
+        }
 
         return AgendaSummary(
             overdueCount = overdue.size,
             todayItems = todays,
             upcomingItems = upcoming,
+            billedThisMonth = billed,
+            paidThisMonth = paid,
+            goals = goals,
+            mealNote = mealNote,
+            todoTop = todoTop,
+            buyTop = buyTop,
             fetchedAt = System.currentTimeMillis(),
         )
     }

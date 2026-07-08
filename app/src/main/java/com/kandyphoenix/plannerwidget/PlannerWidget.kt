@@ -16,6 +16,7 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
@@ -44,7 +45,6 @@ import java.util.Locale
 private const val PLANNER_URL = "https://kandyphoenix.github.io/kandys-planner/"
 
 private val BG = Color(0xFF161619)
-private val PANEL = Color(0xFF1F1F24)
 private val TEXT = Color(0xFFF3F3F6)
 private val MUTED = Color(0xFF9A9AA6)
 private val PINK = Color(0xFFFF1C8D)
@@ -55,6 +55,11 @@ private fun spaceColor(space: String): Color = when (space) {
     "PHW" -> Color(0xFF4A9FFF)
     "Life" -> Color(0xFFA855F7)
     else -> PINK // PM
+}
+
+private fun money(v: Double): String {
+    val rounded = Math.round(v)
+    return "$" + "%,d".format(rounded)
 }
 
 class PlannerWidget : GlanceAppWidget() {
@@ -70,23 +75,27 @@ class PlannerWidget : GlanceAppWidget() {
     }
 }
 
+private sealed class Row2 {
+    data class Header(val label: String) : Row2()
+    data class Item(val text: String) : Row2()
+    data class Agenda(val obj: JSONObject, val showDate: Boolean) : Row2()
+    data class Plain(val text: String, val color: Color) : Row2()
+    object Space4 : Row2()
+}
+
 @Composable
 private fun WidgetContent(json: String?) {
     val today = LocalDate.now()
     val headerDate = today.format(DateTimeFormatter.ofPattern("EEE, MMM d"))
+    val openUrl = actionStartActivity(openIntent())
 
-    Column(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(BG)
-            .padding(12.dp)
-            .clickable(actionStartActivity(openIntent()))
-    ) {
-        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Kandy's Planner",
-                style = TextStyle(color = ColorProvider(PINK), fontWeight = FontWeight.Bold, fontSize = 14.sp),
-            )
+    Column(modifier = GlanceModifier.fillMaxSize().background(BG)) {
+        // Header — not part of the scroll region, always visible.
+        Row(
+            modifier = GlanceModifier.fillMaxWidth().padding(12.dp, 12.dp, 12.dp, 4.dp).clickable(openUrl),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = "Kandy's Planner", style = TextStyle(color = ColorProvider(PINK), fontWeight = FontWeight.Bold, fontSize = 14.sp))
             Spacer(modifier = GlanceModifier.width(8.dp))
             Text(text = headerDate, style = TextStyle(color = ColorProvider(MUTED), fontSize = 11.sp))
             Spacer(modifier = GlanceModifier.width(10.dp))
@@ -96,66 +105,115 @@ private fun WidgetContent(json: String?) {
                 modifier = GlanceModifier.clickable(actionRunCallback<RefreshActionCallback>()),
             )
         }
-        Spacer(modifier = GlanceModifier.height(6.dp))
 
         if (json == null) {
-            Text(text = "Loading…", style = TextStyle(color = ColorProvider(MUTED), fontSize = 12.sp))
+            Text(text = "Loading…", style = TextStyle(color = ColorProvider(MUTED), fontSize = 12.sp), modifier = GlanceModifier.padding(12.dp))
             return@Column
         }
-
         val obj = try { JSONObject(json) } catch (e: Exception) { null }
         if (obj == null) {
-            Text(text = "Couldn't load planner data", style = TextStyle(color = ColorProvider(RED), fontSize = 12.sp))
+            Text(text = "Couldn't load planner data", style = TextStyle(color = ColorProvider(RED), fontSize = 12.sp), modifier = GlanceModifier.padding(12.dp))
             return@Column
         }
 
-        val error = obj.optString("error", "")
-        val overdueCount = obj.optInt("overdueCount", 0)
-        val today0 = obj.optJSONArray("today")
-        val upcoming = obj.optJSONArray("upcoming")
+        val rows = buildRows(obj)
 
-        if (error.isNotBlank()) {
-            Text(text = "⚠ $error", style = TextStyle(color = ColorProvider(RED), fontSize = 11.sp))
-            Spacer(modifier = GlanceModifier.height(4.dp))
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (overdueCount > 0) "$overdueCount overdue" else "All caught up",
-                style = TextStyle(
-                    color = ColorProvider(if (overdueCount > 0) RED else GREEN),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                ),
-            )
-        }
-        Spacer(modifier = GlanceModifier.height(6.dp))
-
-        var shown = 0
-        val maxItems = 6
-
-        if (today0 != null && today0.length() > 0) {
-            Text(text = "TODAY", style = TextStyle(color = ColorProvider(MUTED), fontWeight = FontWeight.Bold, fontSize = 10.sp))
-            for (i in 0 until today0.length()) {
-                if (shown >= maxItems) break
-                AgendaRow(today0.getJSONObject(i), showDate = false)
-                shown++
+        LazyColumn(modifier = GlanceModifier.fillMaxSize().padding(horizontal = 12.dp)) {
+            items(rows.size) { idx ->
+                RenderRow(rows[idx], today)
             }
         }
+    }
+}
 
-        if (upcoming != null && upcoming.length() > 0 && shown < maxItems) {
-            Spacer(modifier = GlanceModifier.height(4.dp))
-            Text(text = "UPCOMING", style = TextStyle(color = ColorProvider(MUTED), fontWeight = FontWeight.Bold, fontSize = 10.sp))
-            for (i in 0 until upcoming.length()) {
-                if (shown >= maxItems) break
-                AgendaRow(upcoming.getJSONObject(i), showDate = true)
-                shown++
-            }
-        }
+private fun buildRows(obj: JSONObject): List<Row2> {
+    val rows = mutableListOf<Row2>()
+    val error = obj.optString("error", "")
+    val overdueCount = obj.optInt("overdueCount", 0)
+    val todayArr = obj.optJSONArray("today")
+    val upcoming = obj.optJSONArray("upcoming")
+    val billed = obj.optDouble("billed", 0.0)
+    val paid = obj.optDouble("paid", 0.0)
+    val mealNote = obj.optString("mealNote", "")
+    val goals = obj.optJSONArray("goals")
+    val todo = obj.optJSONArray("todo")
+    val buy = obj.optJSONArray("buy")
 
-        if (shown == 0 && error.isBlank()) {
-            Text(text = "Nothing on the agenda", style = TextStyle(color = ColorProvider(MUTED), fontSize = 12.sp))
+    if (error.isNotBlank()) rows.add(Row2.Plain("⚠ $error", RED))
+
+    rows.add(Row2.Plain(if (overdueCount > 0) "$overdueCount overdue" else "All caught up", if (overdueCount > 0) RED else GREEN))
+    rows.add(Row2.Plain("$" + "%,d".format(Math.round(billed)) + " billed  ·  " + "$" + "%,d".format(Math.round(paid)) + " paid this month", MUTED))
+
+    if (mealNote.isNotBlank()) {
+        rows.add(Row2.Space4)
+        rows.add(Row2.Header("TODAY'S MEALS"))
+        rows.add(Row2.Item(mealNote))
+    }
+
+    if (goals != null && goals.length() > 0) {
+        rows.add(Row2.Space4)
+        rows.add(Row2.Header("GOALS THIS MONTH"))
+        for (i in 0 until goals.length()) {
+            val g = goals.getJSONObject(i)
+            val target = g.optInt("target", 0)
+            val progress = g.optInt("progress", 0)
+            val suffix = if (target > 0) " ($progress/$target)" else ""
+            val mark = if (g.optBoolean("done", false)) "✓ " else ""
+            rows.add(Row2.Item(mark + g.optString("text", "") + suffix))
         }
+    }
+
+    if (todayArr != null && todayArr.length() > 0) {
+        rows.add(Row2.Space4)
+        rows.add(Row2.Header("TODAY"))
+        for (i in 0 until todayArr.length()) rows.add(Row2.Agenda(todayArr.getJSONObject(i), false))
+    }
+
+    if (upcoming != null && upcoming.length() > 0) {
+        rows.add(Row2.Space4)
+        rows.add(Row2.Header("NEXT 7 DAYS"))
+        for (i in 0 until upcoming.length()) rows.add(Row2.Agenda(upcoming.getJSONObject(i), true))
+    }
+
+    if (todo != null && todo.length() > 0) {
+        rows.add(Row2.Space4)
+        rows.add(Row2.Header("TO-DO"))
+        for (i in 0 until todo.length()) rows.add(Row2.Item(todo.getString(i)))
+    }
+
+    if (buy != null && buy.length() > 0) {
+        rows.add(Row2.Space4)
+        rows.add(Row2.Header("NEED TO BUY"))
+        for (i in 0 until buy.length()) rows.add(Row2.Item(buy.getString(i)))
+    }
+
+    if (rows.isEmpty() || (rows.size == 2 && error.isBlank())) {
+        rows.add(Row2.Item("Nothing else on the agenda"))
+    }
+    return rows
+}
+
+@Composable
+private fun RenderRow(row: Row2, today: LocalDate) {
+    when (row) {
+        is Row2.Space4 -> Spacer(modifier = GlanceModifier.height(6.dp))
+        is Row2.Header -> Text(
+            text = row.label,
+            style = TextStyle(color = ColorProvider(MUTED), fontWeight = FontWeight.Bold, fontSize = 10.sp),
+            modifier = GlanceModifier.padding(bottom = 2.dp),
+        )
+        is Row2.Plain -> Text(
+            text = row.text,
+            style = TextStyle(color = ColorProvider(row.color), fontWeight = FontWeight.Bold, fontSize = 12.sp),
+            modifier = GlanceModifier.padding(vertical = 1.dp),
+        )
+        is Row2.Item -> Text(
+            text = "•  " + row.text,
+            style = TextStyle(color = ColorProvider(TEXT), fontSize = 11.sp),
+            maxLines = 1,
+            modifier = GlanceModifier.padding(vertical = 1.dp),
+        )
+        is Row2.Agenda -> AgendaRow(row.obj, row.showDate)
     }
 }
 
@@ -168,12 +226,7 @@ private fun AgendaRow(item: JSONObject, showDate: Boolean) {
     val dateLabel = if (showDate) shortDate(dateStr) else ""
 
     Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
-        Spacer(
-            modifier = GlanceModifier
-                .width(6.dp)
-                .height(6.dp)
-                .background(spaceColor(space))
-        )
+        Spacer(modifier = GlanceModifier.width(6.dp).height(6.dp).background(spaceColor(space)))
         Spacer(modifier = GlanceModifier.width(5.dp))
         Text(
             text = (if (pri) "★ " else "") + title + (if (dateLabel.isNotBlank()) "  ·  $dateLabel" else ""),
