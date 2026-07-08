@@ -23,7 +23,6 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -90,7 +89,7 @@ private fun WidgetContent(json: String?) {
             )
             Spacer(modifier = GlanceModifier.width(8.dp))
             Text(text = headerDate, style = TextStyle(color = ColorProvider(MUTED), fontSize = 11.sp))
-            Spacer(modifier = GlanceModifier.defaultWeight())
+            Spacer(modifier = GlanceModifier.width(10.dp))
             Text(
                 text = "⟳",
                 style = TextStyle(color = ColorProvider(MUTED), fontSize = 14.sp),
@@ -177,14 +176,10 @@ private fun AgendaRow(item: JSONObject, showDate: Boolean) {
         )
         Spacer(modifier = GlanceModifier.width(5.dp))
         Text(
-            text = (if (pri) "★ " else "") + title,
+            text = (if (pri) "★ " else "") + title + (if (dateLabel.isNotBlank()) "  ·  $dateLabel" else ""),
             style = TextStyle(color = ColorProvider(TEXT), fontSize = 11.sp),
             maxLines = 1,
         )
-        if (dateLabel.isNotBlank()) {
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            Text(text = dateLabel, style = TextStyle(color = ColorProvider(MUTED), fontSize = 10.sp))
-        }
     }
 }
 

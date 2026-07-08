@@ -3,6 +3,7 @@ package com.kandyphoenix.plannerwidget
 import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.appwidget.updateAll
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.work.CoroutineWorker
