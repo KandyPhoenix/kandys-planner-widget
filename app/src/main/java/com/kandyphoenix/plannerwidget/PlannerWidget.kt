@@ -19,6 +19,7 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.background
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
@@ -35,6 +36,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import org.json.JSONObject
@@ -63,16 +65,43 @@ private fun money(v: Double): String {
     return "$" + "%,d".format(rounded)
 }
 
+// If the cached summary is missing or older than this, the widget refetches itself.
+private const val STALE_AFTER_MS = 20 * 60 * 1000L
+
 class PlannerWidget : GlanceAppWidget() {
 
     override val stateDefinition = PreferencesGlanceStateDefinition
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        // Self-heal: whenever the widget is (re)rendered with no data yet or stale data,
+        // kick off a fetch ourselves. This is what actually keeps the card populated —
+        // relying only on the WorkManager periodic job is unreliable (it fires before the
+        // glance id exists on first add, and OEM battery optimizers routinely kill it).
+        val cached = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)[SUMMARY_KEY]
+        if (needsRefresh(cached)) {
+            // KEEP dedupes: if a refresh is already queued/running, don't pile on another.
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "planner_widget_refresh_now",
+                ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<RefreshWorker>().build(),
+            )
+        }
+
         provideContent {
             val prefs = currentState<Preferences>()
             val json = prefs[SUMMARY_KEY]
             WidgetContent(json)
         }
+    }
+}
+
+private fun needsRefresh(json: String?): Boolean {
+    if (json.isNullOrBlank()) return true
+    return try {
+        val fetchedAt = JSONObject(json).optLong("fetchedAt", 0L)
+        System.currentTimeMillis() - fetchedAt > STALE_AFTER_MS
+    } catch (e: Exception) {
+        true
     }
 }
 
