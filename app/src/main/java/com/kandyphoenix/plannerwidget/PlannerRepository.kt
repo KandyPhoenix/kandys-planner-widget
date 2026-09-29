@@ -1,5 +1,6 @@
 package com.kandyphoenix.plannerwidget
 
+import android.content.Context
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,10 +15,10 @@ import java.time.temporal.ChronoUnit
 
 private const val TAG = "PlannerRepository"
 
-// Same Firebase project/doc the web app (kandys-planner) reads and writes.
-private const val FIRESTORE_URL =
-    "https://firestore.googleapis.com/v1/projects/wellness-tracker-127/databases/(default)/documents/wellness/servicesPlanner" +
-        "?key=AIzaSyAxqkJiZL94gR3W5TBPTRNE5AdLyCDwb2g"
+// The planner's Firestore rules are locked (2026-09-29): the doc is no longer readable
+// anonymously. The planner Worker reads it with a service account and serves a copy on
+// /widget, gated by a key the app stores once (see WidgetKeyStore / MainActivity).
+private const val WIDGET_URL = "https://planner.phoenixmethod.workers.dev/widget"
 
 private val ISO: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 private val EXPENSE_TYPES = setOf("Bill")
@@ -56,10 +57,12 @@ private fun emptySummary(error: String? = null) = AgendaSummary(
 
 object PlannerRepository {
 
-    /** Fetch the planner's Firestore doc and compute the whole widget summary. Never throws — errors land in AgendaSummary.error. */
-    fun fetchSummary(): AgendaSummary {
+    /** Fetch the planner doc (via the Worker) and compute the whole widget summary. Never throws — errors land in AgendaSummary.error. */
+    fun fetchSummary(context: Context): AgendaSummary {
+        val key = WidgetKeyStore.get(context)
+        if (key.isBlank()) return emptySummary("Open the Kandy's Planner app once and enter the widget key")
         return try {
-            val json = fetchDocJson()
+            val json = fetchDocJson(key)
             computeSummary(json)
         } catch (e: Exception) {
             Log.w(TAG, "fetchSummary failed", e)
@@ -67,13 +70,19 @@ object PlannerRepository {
         }
     }
 
-    private fun fetchDocJson(): JSONObject {
-        val conn = URL(FIRESTORE_URL).openConnection() as HttpURLConnection
+    private fun fetchDocJson(key: String): JSONObject {
+        val conn = URL(WIDGET_URL).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000
         conn.readTimeout = 15000
         conn.requestMethod = "GET"
+        conn.setRequestProperty("X-Widget-Key", key)
         val code = conn.responseCode
-        if (code != 200) throw RuntimeException("Firestore HTTP $code")
+        when (code) {
+            200 -> Unit
+            403 -> throw RuntimeException("Widget key rejected — open the app and re-enter it")
+            503 -> throw RuntimeException("Worker has no widget key yet (WIDGET_KEY secret)")
+            else -> throw RuntimeException("Worker HTTP $code")
+        }
         val body = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
         val doc = JSONObject(body)
         // Firestore REST wraps field values: fields.json.stringValue holds the app's JSON.stringify(S) blob.

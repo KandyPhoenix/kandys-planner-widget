@@ -15,11 +15,11 @@ val SUMMARY_KEY = stringPreferencesKey("agenda_summary_json")
 
 private val ISO: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
-/** Fetches the planner's live Firestore state, computes the widget summary, and pushes it into every widget instance. */
+/** Fetches the planner's live state (through the Worker), computes the widget summary, and pushes it into every widget instance. */
 class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val summary = PlannerRepository.fetchSummary()
+        val summary = PlannerRepository.fetchSummary(applicationContext)
         val json = toJson(summary)
 
         val manager = GlanceAppWidgetManager(applicationContext)
